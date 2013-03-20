@@ -88,7 +88,7 @@ def checklocalconfig(localConfig=localConfig):
               "Make sure it is the file provided by your current homework.",
               "If the file was the one, provided by the zip file of",
               "your current homework, open a new issue at:",
-              "https://github.com/sebastianstigler/testing_und_debugging/issues",
+              "https://github.com/sebastianstigler/testing_und_debugging_submit/issues",
               file=sys.stderr, sep="\n")
     err=False
     for token in config["Abgeben"]:
@@ -157,7 +157,7 @@ def submit(files, dir, desc):
        (len(r3.findall(output[0])) > 0):
         print("", "Error in submission. Try again.",
               "If the error persist, open a new issue at:",
-              "https://github.com/sebastianstigler/testing_und_debugging/issues",
+              "https://github.com/sebastianstigler/testing_und_debugging_submit/issues",
               file=sys.stderr, sep="\n")
         exit(1)
     else:
