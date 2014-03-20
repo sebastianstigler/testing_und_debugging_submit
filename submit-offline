@@ -1,0 +1,178 @@
+#!/usr/bin/python3
+# vim: ft=python et ai ts=4
+
+import configparser
+import os
+import subprocess
+import argparse
+import tempfile
+import sys
+import shutil
+import time
+import zipfile
+
+globalConfig = "~/.submitrc"
+localConfig = "submit.cfg"
+
+
+def parseCMD():
+    parser = argparse.ArgumentParser(
+             description='Homework offline submition script')
+    parser.add_argument('-e', '--encryption', dest='encrypt', default=False,
+            action='store_true',
+            help="Encrypt files befor packing (default: not encrypt files).")
+    args = parser.parse_args()
+    return args
+
+
+def checkglobalconfig(globalConfig=globalConfig):
+    config = configparser.ConfigParser()
+    if os.path.isfile(os.path.expanduser(globalConfig)):
+        config.read(os.path.expanduser(globalConfig))
+    if not "encrypt" in config or not "user" in config["encrypt"]:
+        config["encrypt"] = {}
+        config["encrypt"]["user"] = "sebastian.stigler@htw-aalen.de"
+        with open(os.path.expanduser(globalConfig), "w") as configfile:
+            config.write(configfile)
+    if not "group" in config or not "number" in config["group"]:
+        chk = 'n'
+        while chk != 'y':
+            group = input("Enter group number: ")
+            if group.isdecimal() and 0 <= int(group) <= 99:
+                chk = input("Do you want to use group number '%s' [y/N]? "
+                    % (group)).lower()
+        config["group"] = {}
+        config["group"]["number"] = group
+        with open(os.path.expanduser(globalConfig), "w") as configfile:
+            config.write(configfile)
+    return config
+
+
+def checklocalconfig(localConfig=localConfig):
+    config = configparser.ConfigParser()
+    if not os.path.isfile(localConfig):
+        print("Error: File '%s' not found." % (localConfig),
+              "Make sure, that you call 'submit' in the",
+              "directory which contains the '%s' file." % (localConfig),
+              file=sys.stderr, sep="\n")
+        exit(1)
+    config.read(localConfig)
+    if not "Uebung" in config or not "Abgeben" in config:
+        print("Error: The file '%s' has the wrong format." % (localConfig),
+              "Make sure it is the file provided by your current homework.",
+              "If the file was the one, provided by the zip file of",
+              "your current homework contact the teacher of this course.",
+              file=sys.stderr, sep="\n")
+    err = False
+    for token in config["Abgeben"]:
+        if not os.path.isfile(config["Abgeben"][token]):
+            print("Error: File '%s' should be submitted but is missing,"
+                  % (config["Abgeben"][token]),
+                  file=sys.stderr)
+            err = True
+    if err:
+        exit(1)
+    return config
+
+
+def encrypt(srcfile, dstfile, dir, user):
+    sf = os.path.join(dir, srcfile)
+    df = os.path.join(dir, dstfile)
+    if not os.path.isdir(dir):
+        print("Error: Directory '%s' does not exist." % (dir), file=sys.stderr)
+        exit(1)
+    if not os.path.isfile(sf):
+        print("Error: File '%s' does not exist." % (sf), file=sys.stderr)
+        exit(1)
+    res = subprocess.Popen(
+      "gpg --always-trust --output \"%s\" -a -e -r \"%s\" --batch --yes \"%s\""
+                           % (df, user, sf), shell=True,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    res.wait()
+    if res.returncode != 0:
+        output = []
+        for line in res.stdout.readlines():
+            output.append(line.decode("utf-8").strip())
+        for line in res.stderr.readlines():
+            output.append(line.decode("utf-8").strip())
+        print("Error in encrypt() function:")
+        print("\n".join(output), file=sys.stderr)
+        exit(1)
+
+
+def submit(files, dir, exercise, group):
+    assert isinstance(files, list)
+    assert isinstance(dir, str)
+    assert isinstance(exercise, int) and 0 <= exercise <= 99
+    assert isinstance(group, int) and 0 <= group <= 99
+
+    if not os.path.isdir(dir):
+        print("Error in submit() function:", file=sys.stderr)
+        print("Error: Directory '%s' does not exist." % (dir), file=sys.stderr)
+        exit(1)
+    zipbasename = "TuD_Homework_%02d_Group_%02d.zip" % (exercise, group)
+    zn = os.path.join(dir, zipbasename)
+    try:
+        with zipfile.ZipFile(zn, 'w', compression=zipfile.ZIP_DEFLATED) \
+             as myzip:
+            for file in files:
+                sf = os.path.join(dir, file)
+                if not os.path.isfile(sf):
+                    print("Error in submit() function:", file=sys.stderr)
+                    print("Error: File '%s' does not exist." % (sf),
+                          file=sys.stderr)
+                    exit(1)
+                myzip.write(sf, file)
+    except zipfile.BadZipFile as bz:
+        print("Error in zip file creation:", str(bz), file=sys.stderr,
+              sep="\n")
+        exit(1)
+    try:
+        shutil.copy(zn, os.getcwd())
+    except (IOError, os.error) as why:
+        print("Error in copyfiles() function:", str(why), file=sys.stderr,
+              sep="\n")
+        exit(1)
+    print("\nPlease submit the following file:", zipbasename)
+
+
+def copyfiles(files, dir):
+    if not os.path.isdir(dir):
+        print("Error in copyfiles() function:", file=sys.stderr)
+        print("Error: Directory '%s' does not exist." % (dir), file=sys.stderr)
+        exit(1)
+    for file in files:
+        sf = os.path.join(os.getcwd(), file)
+        if not os.path.isfile(sf):
+            print("Error in copyfiles() function:", file=sys.stderr)
+            print("Error: File '%s' does not exist." % (sf), file=sys.stderr)
+            exit(1)
+    for file in files:
+        try:
+            shutil.copy(os.path.join(os.getcwd(), file), dir)
+        except (IOError, os.error) as why:
+            print("Error in copyfiles() function:", str(why), file=sys.stderr,
+                  sep="\n")
+            exit(1)
+
+if __name__ == "__main__":
+    cmd = parseCMD()
+    gconfig = checkglobalconfig()
+    lconfig = checklocalconfig()
+
+    with tempfile.TemporaryDirectory() as dir:
+        files = list(lconfig["Abgeben"].values())
+        copyfiles(files, dir)
+        if cmd.encrypt:
+            files = []
+            for file in lconfig["Abgeben"].values():
+                encrypt(file, file + ".asc", dir, gconfig["encrypt"]["user"])
+                files.append(file + ".asc")
+        lconfig["submit"] = {}
+        lconfig["submit"]["encrypt"] = str(cmd.encrypt)
+        lconfig["submit"]["time"] = str(int(time.time()))
+        with open(os.path.join(dir, localConfig), "w") as configfile:
+            lconfig.write(configfile)
+        files.insert(0, localConfig)
+        submit(files, dir, int(lconfig["Uebung"]["aufgabe"]),
+               int(gconfig["group"]["number"]))
