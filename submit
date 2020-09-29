@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 # vim: ft=python et ai ts=4
 
-import getpass
 import configparser
 import os
 import subprocess
@@ -11,116 +10,140 @@ import re
 import sys
 import shutil
 import time
+import yaml
 
-authFile = "~/.gistsrc"
-globalConfig = "~/.submitrc"
-localConfig = "submit.cfg"
+AUTH_FILE = "~/.config/gh/hosts.yml"
+GLOBAL_CONFIG = "~/.submitrc"
+LOCAL_CONFIG = "submit.cfg"
 
 
-def parseCMD():
-    parser = argparse.ArgumentParser(description='Homework submition script')
-    parser.add_argument('-a', '--authorize', dest='authorize', default=False,
-            action='store_true',
-            help="Authorize the 'gists' backend for upload to github.")
-    parser.add_argument('-ne', '--no_encryption', dest='encrypt', default=True,
-            action='store_false',
-            help="Don't encrypt files befor upload (default: encrypt files).")
+def parse_cmd():
+    parser = argparse.ArgumentParser(description="Homework submission script")
+    parser.add_argument(
+        "-a",
+        "--authorize",
+        dest="authorize",
+        default=False,
+        action="store_true",
+        help="Authorize the 'gh' backend for upload to github.",
+    )
+    parser.add_argument(
+        "-ne",
+        "--no_encryption",
+        dest="encrypt",
+        default=True,
+        action="store_false",
+        help="Don't encrypt files before upload (default: encrypt files).",
+    )
     args = parser.parse_args()
     return args
 
 
-def checkauth(authFile=authFile):
+def checkauth(auth_file=AUTH_FILE):
     """Check if gists is already authorized.
        return username or None (when not authorized)"""
-    config = configparser.ConfigParser()
-    config.read(os.path.expanduser(authFile))
-    if not "credentials" in config or not "user" in config["credentials"]:
-        return None
-    return config["credentials"]["user"]
+    filename = os.path.expanduser(auth_file)
+    if os.path.exists(filename):
+        with open(filename) as fil:
+            config = yaml.load(fil, Loader=yaml.SafeLoader)
+        if "github.com" in config and "oauth_token" in config["github.com"]:
+            return True
+    return False
 
 
 def authorize():
-    chk = 'n'
-    while chk != 'y':
-        user = input("github username: ")
-        chk = input("Do you want to authorize as '%s' [y/N]? "
-                    % (user)).lower()
-    passwd = getpass.getpass("Password for '%s': " % (user))
+    chk = "n"
+    token = ""
+    while chk != "y":
+        token = input("github token: ")
+        chk = input(
+            "Do you want to authorize with the token '%s' [y/N]? " % token
+        ).lower()
 
-    res = subprocess.Popen("gists authorize -u %s -c %s" % (user, passwd),
-                           shell=True,  stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE)
-    res.wait()
+    res = subprocess.Popen(
+        "gh auth login --with-token",
+        shell=True,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    res_stdout, res_stderr = res.communicate(token.encode())
 
-    output = []
-    for line in res.stdout.readlines():
-        output.append(line.decode("utf-8").strip())
+    output = res_stdout.decode().strip().split("\n")
+    output += res_stderr.decode().strip().split("\n")
 
-    # Error: Could not get an authorization token.
-    #                                          Github reason: 'Bad credentials'
-    # Authentication token written in '~/.gistsrc'
-    OK_AUTH = "^Authentication token written"
-    r1 = re.compile(OK_AUTH)
-    if len(r1.findall(output[0])) > 0:
-        return user
-    else:
+    if len("".join(output)) > 0:
         print("Error in authorize() function:")
         print("\n".join(output), file=sys.stderr)
         exit(1)
+    subprocess.Popen("gh auth status", shell=True).communicate(b"\n")
+    return True
 
 
-def checkglobalconfig(globalConfig=globalConfig):
+def check_global_config(global_config=GLOBAL_CONFIG):
     config = configparser.ConfigParser()
-    if os.path.isfile(os.path.expanduser(globalConfig)):
-        config.read(os.path.expanduser(globalConfig))
-    if not "encrypt" in config or not "user" in config["encrypt"]:
+    if os.path.isfile(os.path.expanduser(global_config)):
+        config.read(os.path.expanduser(global_config))
+    if "encrypt" not in config or "user" not in config["encrypt"]:
         config["encrypt"] = {}
         config["encrypt"]["user"] = "sebastian.stigler@htw-aalen.de"
-        with open(os.path.expanduser(globalConfig), "w") as configfile:
-            config.write(configfile)
+        with open(os.path.expanduser(global_config), "w") as cfg_file:
+            config.write(cfg_file)
     return config
 
 
-def checklocalconfig(localConfig=localConfig):
+def check_local_config(local_config=LOCAL_CONFIG):
     config = configparser.ConfigParser()
-    if not os.path.isfile(localConfig):
-        print("Error: File '%s' not found." % (localConfig),
-              "Make sure, that you call 'submit' in the",
-              "directory which contains the '%s' file." % (localConfig),
-              file=sys.stderr, sep="\n")
+    if not os.path.isfile(local_config):
+        print(
+            "Error: File '%s' not found." % local_config,
+            "Make sure, that you call 'submit' in the",
+            "directory which contains the '%s' file." % local_config,
+            file=sys.stderr,
+            sep="\n",
+        )
         exit(1)
-    config.read(localConfig)
-    if not "Uebung" in config or not "Abgeben" in config:
-        print("Error: The file '%s' has the wrong format." % (localConfig),
-              "Make sure it is the file provided by your current homework.",
-              "If the file was the one, provided by the zip file of",
-              "your current homework, open a new issue at:",
-              "https://github.com/sebastianstigler/testing_und_debugging_submit/issues",
-              file=sys.stderr, sep="\n")
+    config.read(local_config)
+    if "Uebung" not in config or "Abgeben" not in config:
+        print(
+            "Error: The file '%s' has the wrong format." % local_config,
+            "Make sure it is the file provided by your current homework.",
+            "If the file was the one, provided by the zip file of",
+            "your current homework, send a mail at:",
+            "sebastian.stigler@hs-aalen.de",
+            file=sys.stderr,
+            sep="\n",
+        )
     err = False
     for token in config["Abgeben"]:
         if not os.path.isfile(config["Abgeben"][token]):
-            print("Error: File '%s' should be submitted but is missing,"
-                  % (config["Abgeben"][token]), file=sys.stderr)
+            print(
+                "Error: File '%s' should be submitted but is missing,"
+                % (config["Abgeben"][token]),
+                file=sys.stderr,
+            )
             err = True
     if err:
         exit(1)
     return config
 
 
-def encrypt(srcfile, dstfile, dir, user):
-    sf = os.path.join(dir, srcfile)
-    df = os.path.join(dir, dstfile)
-    if not os.path.isdir(dir):
-        print("Error: Directory '%s' does not exist." % (dir), file=sys.stderr)
+def encrypt(srcfile, dst_file, directory, user):
+    sf = os.path.join(directory, srcfile)
+    df = os.path.join(directory, dst_file)
+    if not os.path.isdir(directory):
+        print("Error: Directory '%s' does not exist." % directory, file=sys.stderr)
         exit(1)
     if not os.path.isfile(sf):
-        print("Error: File '%s' does not exist." % (sf), file=sys.stderr)
+        print("Error: File '%s' does not exist." % sf, file=sys.stderr)
         exit(1)
     res = subprocess.Popen(
-      "gpg --always-trust --output \"%s\" -a -e -r \"%s\" --batch --yes \"%s\""
-                           % (df, user, sf), shell=True,
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        'gpg --always-trust --output "%s" -a -e -r "%s" --batch --yes "%s"'
+        % (df, user, sf),
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
     res.wait()
     if res.returncode != 0:
         output = []
@@ -133,21 +156,32 @@ def encrypt(srcfile, dstfile, dir, user):
         exit(1)
 
 
-def submit(files, dir, desc):
-    if not os.path.isdir(dir):
+def submit(filenames, directory, description):
+    if not os.path.isdir(directory):
         print("Error in submit() function:", file=sys.stderr)
-        print("Error: Directory '%s' does not exist." % (dir), file=sys.stderr)
+        print("Error: Directory '%s' does not exist." % directory, file=sys.stderr)
         exit(1)
-    for file in files:
-        sf = os.path.join(dir, file)
+    for filename in filenames:
+        sf = os.path.join(directory, filename)
         if not os.path.isfile(sf):
             print("Error in submit() function:", file=sys.stderr)
-            print("Error: File '%s' does not exist." % (sf), file=sys.stderr)
+            print("Error: File '%s' does not exist." % sf, file=sys.stderr)
             exit(1)
-    res = subprocess.Popen("gists create -p -d \"%s\" -f %s -i \"%s\""
-                           % (desc, " ".join(files), dir), shell=True,
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    res.wait()
+    old_directory = os.getcwd()
+    os.chdir(directory)
+    try:
+        command = 'gh gist create -p -d "%s" -f %s ' % (
+            description,
+            " ".join(filenames),
+        )
+        # print(command)
+        # print(os.listdir())
+        res = subprocess.Popen(
+            command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        res.wait()
+    finally:
+        os.chdir(old_directory)
 
     output = []
     for line in res.stdout.readlines():
@@ -155,78 +189,99 @@ def submit(files, dir, desc):
     for line in res.stderr.readlines():
         output.append(line.decode("utf-8").strip())
 
-    OK_1 = "^---"
-    OK_2 = "^Gist"
-    ERR = "^Traceback"
-    r1 = re.compile(OK_1)
-    r2 = re.compile(OK_2)
-    r3 = re.compile(ERR)
+    ok_1 = "Creating gist with multiple files"
+    ok_2 = "Created gist"
+    err = "^Traceback"
+    r1 = re.compile(ok_1)
+    r2 = re.compile(ok_2)
+    r3 = re.compile(err)
     print("\n".join(output))
-    if not (len(r1.findall(output[0])) > 0) or \
-       not (len(r2.findall(output[1])) > 0) or \
-       (len(r3.findall(output[0])) > 0):
-        print("", "Error in submission. Try again.",
-              "If the error persist, open a new issue at:",
-              "https://github.com/sebastianstigler/testing_und_debugging_submit/issues",
-              file=sys.stderr, sep="\n")
+    if (
+        len(output) < 3 or
+        not (len(r1.findall(output[1])) > 0)
+        or not (len(r2.findall(output[2])) > 0)
+        or (len(r3.findall(output[0])) > 0)
+    ):
+        print(
+            "",
+            "Error in submission. Try again.",
+            "If the error persist, send a mail at: ",
+            "sebastian.stigler@hs-aalen.de",
+            file=sys.stderr,
+            sep="\n",
+        )
         exit(1)
     else:
         print("\nSubmission successful.")
 
 
-def checkinternet():
-    res = subprocess.Popen("ping -c1 github.com", shell=True,
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+def check_internet():
+    res = subprocess.Popen(
+        "ping -c1 github.com",
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
     res.wait()
     if res.returncode != 0:
-        print("Error: No connection to github.com.",
-              "You need a activ internet connetion for submission!",
-              file=sys.stderr, sep="\n")
+        print(
+            "Error: No connection to github.com.",
+            "You need a active internet connection for submission!",
+            file=sys.stderr,
+            sep="\n",
+        )
         exit(1)
 
 
-def copyfiles(files, dir):
-    if not os.path.isdir(dir):
-        print("Error in copyfiles() function:", file=sys.stderr)
-        print("Error: Directory '%s' does not exist." % (dir), file=sys.stderr)
+def copy_files(filenames, directory):
+    if not os.path.isdir(directory):
+        print("Error in copy_files() function:", file=sys.stderr)
+        print("Error: Directory '%s' does not exist." % directory, file=sys.stderr)
         exit(1)
-    for file in files:
-        sf = os.path.join(os.getcwd(), file)
+    for filename in filenames:
+        sf = os.path.join(os.getcwd(), filename)
         if not os.path.isfile(sf):
-            print("Error in copyfiles() function:", file=sys.stderr)
-            print("Error: File '%s' does not exist." % (sf), file=sys.stderr)
+            print("Error in copy_files() function:", file=sys.stderr)
+            print("Error: File '%s' does not exist." % sf, file=sys.stderr)
             exit(1)
-    for file in files:
+    for filename in filenames:
         try:
-            shutil.copy(os.path.join(os.getcwd(), file), dir)
+            shutil.copy(os.path.join(os.getcwd(), filename), directory)
         except (IOError, os.error) as why:
-            print("Error in copyfiles() function:", str(why), file=sys.stderr,
-                  sep="\n")
+            print(
+                "Error in copy_files() function:", str(why), file=sys.stderr, sep="\n"
+            )
             exit(1)
+
 
 if __name__ == "__main__":
-    checkinternet()
-    cmd = parseCMD()
-    user = checkauth()
-    if user == None or cmd.authorize:
-        user = authorize()
-    gconfig = checkglobalconfig()
-    lconfig = checklocalconfig()
+    check_internet()
+    cmd = parse_cmd()
+    is_authorized = checkauth()
+    if not is_authorized or cmd.authorize:
+        is_authorized = authorize()
+        exit()
+    gconfig = check_global_config()
+    lconfig = check_local_config()
 
-    with tempfile.TemporaryDirectory() as dir:
+    with tempfile.TemporaryDirectory() as temp_dir:
         files = list(lconfig["Abgeben"].values())
-        copyfiles(files, dir)
+        copy_files(files, temp_dir)
         if cmd.encrypt:
             files = []
             for file in lconfig["Abgeben"].values():
-                encrypt(file, file + ".asc", dir, gconfig["encrypt"]["user"])
+                encrypt(file, file + ".asc", temp_dir, gconfig["encrypt"]["user"])
                 files.append(file + ".asc")
         lconfig["submit"] = {}
         lconfig["submit"]["encrypt"] = str(cmd.encrypt)
         lconfig["submit"]["time"] = str(int(time.time()))
-        with open(os.path.join(dir, localConfig), "w") as configfile:
+        with open(os.path.join(temp_dir, LOCAL_CONFIG), "w") as configfile:
             lconfig.write(configfile)
-        files.insert(0, localConfig)
-        desc = "TuD Uebung %s, submit %s" % (lconfig["Uebung"]["aufgabe"],
-                                             lconfig["submit"]["time"])
-        submit(files, dir, desc)
+        files.insert(0, LOCAL_CONFIG)
+        files.insert(0, LOCAL_CONFIG)  # Workaround: gh omits the first file
+        desc = "TuD Uebung %s, submit %s" % (
+            lconfig["Uebung"]["aufgabe"],
+            lconfig["submit"]["time"],
+        )
+        # print(files)
+        submit(files, temp_dir, desc)
