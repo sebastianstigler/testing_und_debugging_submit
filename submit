@@ -260,7 +260,8 @@ if __name__ == "__main__":
     is_authorized = checkauth()
     if not is_authorized or cmd.authorize:
         is_authorized = authorize()
-        exit()
+        if cmd.authorize:
+           exit()
     gconfig = check_global_config()
     lconfig = check_local_config()
 
