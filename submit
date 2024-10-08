@@ -42,7 +42,7 @@ def checkauth():
     """Check if gists is already authorized.
     return username or None (when not authorized)"""
 
-    res = subprocess.Popen(
+    res = subprocess.run(
         "gh auth status",
         shell=True,
     )
