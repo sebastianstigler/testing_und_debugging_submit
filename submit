@@ -43,7 +43,7 @@ def checkauth():
     return username or None (when not authorized)"""
 
     res = subprocess.run(
-        "gh auth status",
+        "gh auth status > /dev/null",
         shell=True,
     )
     return res.returncode == 0
