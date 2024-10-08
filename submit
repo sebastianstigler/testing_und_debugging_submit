@@ -190,18 +190,14 @@ def submit(filenames, directory, description):
     for line in res.stderr.readlines():
         output.append(line.decode("utf-8").strip())
 
-    ok_1 = "Creating gist with multiple files"
-    ok_2 = "Created gist"
     err = "^Traceback"
-    r1 = re.compile(ok_1)
-    r2 = re.compile(ok_2)
-    r3 = re.compile(err)
+    r_err = re.compile(err)
     print("\n".join(output))
+
     if (
         len(output) < 3
-        or not (len(r1.findall(output[1])) > 0)
-        or not (len(r2.findall(output[2])) > 0)
-        or (len(r3.findall(output[0])) > 0)
+        or not res.returncode == 0
+        or (len(r_err.findall(output[0])) > 0)
     ):
         print(
             "",
