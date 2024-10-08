@@ -12,7 +12,6 @@ import shutil
 import time
 import yaml
 
-AUTH_FILE = "~/.config/gh/hosts.yml"
 GLOBAL_CONFIG = "~/.submitrc"
 LOCAL_CONFIG = "submit.cfg"
 
@@ -39,16 +38,15 @@ def parse_cmd():
     return args
 
 
-def checkauth(auth_file=AUTH_FILE):
+def checkauth():
     """Check if gists is already authorized.
-       return username or None (when not authorized)"""
-    filename = os.path.expanduser(auth_file)
-    if os.path.exists(filename):
-        with open(filename) as fil:
-            config = yaml.load(fil, Loader=yaml.SafeLoader)
-        if "github.com" in config and "oauth_token" in config["github.com"]:
-            return True
-    return False
+    return username or None (when not authorized)"""
+
+    res = subprocess.Popen(
+        "gh auth status",
+        shell=True,
+    )
+    return res.returncode == 0
 
 
 def authorize():
@@ -177,7 +175,10 @@ def submit(filenames, directory, description):
         # print(command)
         # print(os.listdir())
         res = subprocess.Popen(
-            command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
         res.wait()
     finally:
@@ -197,8 +198,8 @@ def submit(filenames, directory, description):
     r3 = re.compile(err)
     print("\n".join(output))
     if (
-        len(output) < 3 or
-        not (len(r1.findall(output[1])) > 0)
+        len(output) < 3
+        or not (len(r1.findall(output[1])) > 0)
         or not (len(r2.findall(output[2])) > 0)
         or (len(r3.findall(output[0])) > 0)
     ):
@@ -261,7 +262,7 @@ if __name__ == "__main__":
     if not is_authorized or cmd.authorize:
         is_authorized = authorize()
         if cmd.authorize:
-           exit()
+            exit()
     gconfig = check_global_config()
     lconfig = check_local_config()
 
